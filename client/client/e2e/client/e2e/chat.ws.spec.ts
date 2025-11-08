@@ -1,6 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type BrowserContext } from '@playwright/test';
 
 const B64_RE = /^[A-Za-z0-9+/=]+$/;
+const TOKEN_COOKIE_NAME = 'accessToken';
 
 function parseSocketIoFrame(frame: unknown): [string, unknown] | null {
   if (typeof frame !== 'string') {
@@ -22,6 +23,32 @@ function parseSocketIoFrame(frame: unknown): [string, unknown] | null {
   return null;
 }
 
+function resolveCookieOrigins(urls: string[]): string[] {
+  const origins = new Set<string>();
+  for (const raw of urls) {
+    const parsed = new URL(raw);
+    origins.add(parsed.origin);
+  }
+  return [...origins];
+}
+
+async function applyAuthCookies(
+  context: BrowserContext,
+  token: string,
+  origins: string[]
+): Promise<void> {
+  const cookies = origins.map((origin) => ({
+    name: TOKEN_COOKIE_NAME,
+    value: token,
+    url: `${origin}/`,
+    httpOnly: true,
+    sameSite: 'Strict' as const,
+    path: '/',
+    secure: origin.startsWith('https://'),
+  }));
+  await context.addCookies(cookies);
+}
+
 test('Socket.IO frames contain ciphertext payloads only', async ({ browser }) => {
   const baseUrl = process.env.E2E_BASE_URL || 'http://localhost:3000';
   const apiUrl = process.env.E2E_API_URL || 'http://localhost:8080';
@@ -34,25 +61,15 @@ test('Socket.IO frames contain ciphertext payloads only', async ({ browser }) =>
 
   const messageEvents: Array<Record<string, unknown>> = [];
 
+  const cookieOrigins = resolveCookieOrigins([baseUrl, apiUrl]);
+
   const ctxA = await browser.newContext();
   const pageA = await ctxA.newPage();
-  await pageA.addInitScript(
-    ([token]) => {
-      localStorage.setItem('authToken', token);
-      localStorage.setItem('token', token);
-    },
-    [tokenA]
-  );
+  await applyAuthCookies(ctxA, tokenA, cookieOrigins);
 
   const ctxB = await browser.newContext();
   const pageB = await ctxB.newPage();
-  await pageB.addInitScript(
-    ([token]) => {
-      localStorage.setItem('authToken', token);
-      localStorage.setItem('token', token);
-    },
-    [tokenB]
-  );
+  await applyAuthCookies(ctxB, tokenB, cookieOrigins);
 
   const pages = [pageA, pageB];
 

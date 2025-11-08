@@ -1,6 +1,33 @@
-import { test, expect } from '@playwright/test';
+import { expect, test, type BrowserContext } from '@playwright/test';
 
 const B64_RE = /^[A-Za-z0-9+/=]+$/;
+const TOKEN_COOKIE_NAME = 'accessToken';
+
+function resolveCookieOrigins(urls: string[]): string[] {
+  const origins = new Set<string>();
+  for (const raw of urls) {
+    const parsed = new URL(raw);
+    origins.add(parsed.origin);
+  }
+  return [...origins];
+}
+
+async function applyAuthCookies(
+  context: BrowserContext,
+  token: string,
+  origins: string[]
+): Promise<void> {
+  const cookies = origins.map((origin) => ({
+    name: TOKEN_COOKIE_NAME,
+    value: token,
+    url: `${origin}/`,
+    httpOnly: true,
+    sameSite: 'Strict' as const,
+    path: '/',
+    secure: origin.startsWith('https://'),
+  }));
+  await context.addCookies(cookies);
+}
 
 test('A → B: сеть только base64; в UI у B — расшифрованный текст', async ({ browser }) => {
   const baseUrl = process.env.E2E_BASE_URL || 'http://localhost:3000';
@@ -14,25 +41,15 @@ test('A → B: сеть только base64; в UI у B — расшифрова
   const seenRequests: Array<Record<string, unknown>> = [];
   const wsFrames: string[] = [];
 
+  const cookieOrigins = resolveCookieOrigins([baseUrl, apiUrl]);
+
   const ctxA = await browser.newContext();
   const pageA = await ctxA.newPage();
-  await pageA.addInitScript(
-    ([token]) => {
-      localStorage.setItem('authToken', token);
-      localStorage.setItem('token', token);
-    },
-    [tokenA]
-  );
+  await applyAuthCookies(ctxA, tokenA, cookieOrigins);
 
   const ctxB = await browser.newContext();
   const pageB = await ctxB.newPage();
-  await pageB.addInitScript(
-    ([token]) => {
-      localStorage.setItem('authToken', token);
-      localStorage.setItem('token', token);
-    },
-    [tokenB]
-  );
+  await applyAuthCookies(ctxB, tokenB, cookieOrigins);
 
   for (const page of [pageA, pageB]) {
     page.on('request', (req) => {
