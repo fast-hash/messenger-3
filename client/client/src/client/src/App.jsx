@@ -7,24 +7,35 @@ import ChatPage from './pages/ChatPage';
 import LoginPage from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 
+function LoadingScreen() {
+  return <div style={{ padding: 32 }}>Загрузка…</div>;
+}
+
 function Protected({ children }) {
-  const { token } = useContext(AuthContext);
-  if (!token) {
+  const { isAuthenticated, loading } = useContext(AuthContext);
+  if (loading) {
+    return <LoadingScreen />;
+  }
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
   return children;
 }
 
 export default function App() {
-  const { token } = useContext(AuthContext);
+  const { isAuthenticated, loading } = useContext(AuthContext);
+
+  const loginElement = loading ? <LoadingScreen /> : isAuthenticated ? <Navigate to="/chat" replace /> : <LoginPage />;
+  const registerElement = loading
+    ? <LoadingScreen />
+    : isAuthenticated
+      ? <Navigate to="/chat" replace />
+      : <RegisterPage />;
 
   return (
     <Routes>
-      <Route path="/login" element={token ? <Navigate to="/chat" replace /> : <LoginPage />} />
-      <Route
-        path="/register"
-        element={token ? <Navigate to="/chat" replace /> : <RegisterPage />}
-      />
+      <Route path="/login" element={loginElement} />
+      <Route path="/register" element={registerElement} />
       <Route
         path="/chat"
         element={
@@ -44,7 +55,12 @@ export default function App() {
           </Protected>
         }
       />
-      <Route path="*" element={<Navigate to={token ? '/chat' : '/login'} replace />} />
+      <Route
+        path="*"
+        element={
+          loading ? <LoadingScreen /> : <Navigate to={isAuthenticated ? '/chat' : '/login'} replace />
+        }
+      />
     </Routes>
   );
 }

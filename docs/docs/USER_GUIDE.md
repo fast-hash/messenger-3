@@ -8,7 +8,7 @@
 ## Регистрация и вход
 
 - Заполните форму регистрации: логин, email, пароль и публичный ключ отправляется на сервер вместе с pre-key bundle.【F:server/src/routes/auth.js†L9-L32】【F:server/src/routes/keybundle.js†L5-L34】
-- После регистрации/входа JWT сохраняется в `localStorage` и используется при последующих запросах.【F:client/src/api/request.js†L16-L32】【F:client/src/contexts/AuthContext.jsx†L1-L120】
+- После регистрации/входа сервер выставляет HTTP-only cookie `accessToken` с JWT; браузер автоматически отправляет его в дальнейших HTTP-запросах и WebSocket-подключениях.【F:server/server/src/server/src/routes/server/src/routes/auth.js†L147-L216】【F:client/client/src/client/src/contexts/client/src/contexts/AuthContext.jsx†L42-L104】
 
 ## Работа с чатами
 
