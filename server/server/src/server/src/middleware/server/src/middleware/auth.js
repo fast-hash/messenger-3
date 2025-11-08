@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 
 import config from '../config.js';
 
+const COOKIE_TOKEN_NAME = 'accessToken';
+
 const JWT_ALG = Object.freeze({
   RS256: 'RS256',
   HS256: 'HS256',
@@ -100,10 +102,61 @@ export function verifyAccess(token) {
   return buildUser(payload);
 }
 
+function parseCookie(header, name) {
+  if (typeof header !== 'string' || header.length === 0) {
+    return null;
+  }
+
+  const pairs = header.split(';');
+  for (const pair of pairs) {
+    const [rawKey, ...rest] = pair.split('=');
+    if (!rawKey || rest.length === 0) {
+      continue;
+    }
+    if (rawKey.trim() !== name) {
+      continue;
+    }
+    const value = rest.join('=').trim();
+    if (!value) {
+      return null;
+    }
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function getAccessTokenFromRequest(req) {
+  const header = req?.headers?.authorization || '';
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    const candidate = header.slice(7).trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const cookieHeader = req?.headers?.cookie;
+  const cookieToken = parseCookie(cookieHeader, COOKIE_TOKEN_NAME);
+  if (cookieToken) {
+    return cookieToken;
+  }
+
+  return null;
+}
+
+export function getAccessTokenFromCookieHeader(header) {
+  return parseCookie(header, COOKIE_TOKEN_NAME);
+}
+
 export function authRequired(req, res, next) {
   try {
-    const hdr = req.headers.authorization || '';
-    const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : '';
+    const token = getAccessTokenFromRequest(req);
+    if (!token) {
+      throw new Error('NO_TOKEN');
+    }
     req.user = verifyAccess(token);
     return next();
   } catch {

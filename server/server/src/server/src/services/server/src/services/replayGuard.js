@@ -6,6 +6,7 @@ import config from '../config.js';
 
 let redisClient;
 let connectPromise;
+let redisDegradedLogged = false;
 
 export function sha256Base64Str(b64) {
   return crypto.createHash('sha256').update(b64, 'utf8').digest('hex');
@@ -56,15 +57,38 @@ async function resolveClient(connectIfNeeded = true) {
 }
 
 export async function ensureNotReplayed(chatId, encryptedPayload, ttlSeconds = 600) {
-  const client = await resolveClient();
+  let client;
+  try {
+    client = await resolveClient();
+  } catch (err) {
+    if (!redisDegradedLogged) {
+      console.warn('[replayGuard] Redis unavailable, falling back to in-memory acceptance.', err);
+      redisDegradedLogged = true;
+    }
+    return { ok: true, key: null };
+  }
+
   if (!client) {
     return { ok: true, key: null };
   }
+
   const digest = sha256Base64Str(encryptedPayload);
   const key = `replay:${chatId}:${digest}`;
-  const result = await client.set(key, '1', { NX: true, EX: ttlSeconds });
-  const ok = result === 'OK';
-  return { ok, key };
+
+  try {
+    const result = await client.set(key, '1', { NX: true, EX: ttlSeconds });
+    const ok = result === 'OK';
+    if (ok && redisDegradedLogged) {
+      redisDegradedLogged = false;
+    }
+    return { ok, key };
+  } catch (err) {
+    if (!redisDegradedLogged) {
+      console.warn('[replayGuard] Redis error, accepting message without replay guard.', err);
+      redisDegradedLogged = true;
+    }
+    return { ok: true, key: null };
+  }
 }
 
 export async function getRedisClient() {

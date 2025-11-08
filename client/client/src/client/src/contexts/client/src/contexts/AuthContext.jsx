@@ -1,105 +1,107 @@
-import { jwtDecode } from 'jwt-decode';
-import React, { createContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api } from '../api/api';
-import { clearAccessToken, getAccessToken, setAccessToken } from '../api/request.js';
 import { resetSignalState } from '../crypto/signal';
 
 export const AuthContext = createContext();
 
-const TOKEN_CLOCK_SKEW_SEC = 5;
-
-function decodeAccessToken(token) {
-  if (!token) {
-    return null;
-  }
-  try {
-    const payload = jwtDecode(token);
-    const now = Math.floor(Date.now() / 1000);
-    if (typeof payload.exp === 'number' && payload.exp <= now) {
-      return null;
-    }
-    if (typeof payload.nbf === 'number' && payload.nbf > now + TOKEN_CLOCK_SKEW_SEC) {
-      return null;
-    }
-    return payload;
-  } catch (err) {
-    console.warn('Failed to decode access token', err);
-    return null;
-  }
-}
-
-function getUserIdFromPayload(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  return payload.userId || payload.sub || payload.id || null;
+function normalizeUserId(value) {
+  return typeof value === 'string' && value.length ? value : null;
 }
 
 export function AuthProvider({ children }) {
-  const initialSession = useMemo(() => {
-    const storedToken = getAccessToken();
-    const payload = decodeAccessToken(storedToken);
-    const resolvedUserId = getUserIdFromPayload(payload);
-    if (!storedToken || !payload || !resolvedUserId) {
-      clearAccessToken();
-      return { token: null, userId: null };
-    }
-    return { token: storedToken, userId: resolvedUserId };
-  }, []);
-  const [token, setToken] = useState(initialSession.token);
-  const [userId, setUserId] = useState(initialSession.userId);
+  const [userId, setUserId] = useState(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const setSession = (nextToken, explicitUserId) => {
-    if (!nextToken) {
-      clearAccessToken();
-      setToken(null);
-      setUserId(null);
-      return null;
+  const applySession = useCallback((nextUserId) => {
+    const normalized = normalizeUserId(nextUserId);
+    setUserId(normalized);
+    return normalized;
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    setLoading(true);
+    try {
+      const session = await api.session();
+      applySession(session?.userId);
+    } catch (err) {
+      console.warn('Failed to restore auth session', err);
+      applySession(null);
+    } finally {
+      setLoading(false);
     }
+  }, [applySession]);
 
-    const payload = decodeAccessToken(nextToken);
-    if (!payload) {
-      throw new Error('Invalid or expired access token received');
-    }
+  useEffect(() => {
+    refreshSession();
+  }, [refreshSession]);
 
-    const resolvedUserId = explicitUserId ?? getUserIdFromPayload(payload);
-    if (!resolvedUserId) {
-      throw new Error('Access token is missing a user identifier');
-    }
+  const login = useCallback(
+    async (creds) => {
+      setError('');
+      try {
+        const { userId: issuedUserId } = await api.login(creds);
+        const applied = applySession(issuedUserId);
+        if (!applied) {
+          throw new Error('Invalid credentials');
+        }
+        return applied;
+      } catch (err) {
+        applySession(null);
+        setError('Не удалось выполнить вход. Проверьте данные.');
+        throw err;
+      }
+    },
+    [applySession]
+  );
 
-    setAccessToken(nextToken);
-    setToken(nextToken);
-    setUserId(resolvedUserId);
-    return resolvedUserId;
-  };
+  const register = useCallback(
+    async (data) => {
+      setError('');
+      try {
+        const { userId: issuedUserId } = await api.register(data);
+        const applied = applySession(issuedUserId);
+        if (!applied) {
+          throw new Error('Registration failed');
+        }
+        return applied;
+      } catch (err) {
+        applySession(null);
+        setError('Не удалось завершить регистрацию.');
+        throw err;
+      }
+    },
+    [applySession]
+  );
 
-  const login = async (creds) => {
+  const logout = useCallback(async () => {
     setError('');
-    const { token: issuedToken, userId: issuedUserId } = await api.login(creds);
-    return setSession(issuedToken, issuedUserId);
-  };
-
-  const register = async (data) => {
-    setError('');
-    const { token: issuedToken, userId: issuedUserId } = await api.register(data);
-    return setSession(issuedToken, issuedUserId);
-  };
-
-  const logout = () => {
-    clearAccessToken();
-    setToken(null);
-    setUserId(null);
+    try {
+      await api.logout();
+    } catch (err) {
+      console.warn('Logout request failed', err);
+    }
+    applySession(null);
     resetSignalState();
     navigate('/login');
-  };
+  }, [applySession, navigate]);
 
-  return (
-    <AuthContext.Provider value={{ token, userId, error, login, register, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      userId,
+      isAuthenticated: Boolean(userId),
+      error,
+      login,
+      register,
+      logout,
+      loading,
+      refreshSession,
+    }),
+    [error, loading, login, logout, refreshSession, register, userId]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

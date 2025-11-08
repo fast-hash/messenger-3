@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import http from 'node:http';
 
 import cors from 'cors';
@@ -11,7 +12,11 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config.js';
 import { requestIdLogger } from './logger.js';
 import { httpMetrics, metricsHandler, wireWsMetrics, incWsAuthFailed } from './metrics.js';
-import authMiddleware, { verifyJwt, getSharedSecret } from './middleware/auth.js';
+import authMiddleware, {
+  verifyJwt,
+  getSharedSecret,
+  getAccessTokenFromCookieHeader,
+} from './middleware/auth.js';
 import Chat from './models/Chat.js';
 import authRouter from './routes/auth.js';
 import buildKeybundleRouter from './routes/keybundle.js';
@@ -138,7 +143,16 @@ export function createApp({
     res.status(200).json({ ok: true });
   });
 
-  app.get('/metrics', metricsHandler);
+  const metricsGuard = buildMetricsGuard(logger);
+  if (metricsGuard === false) {
+    app.get('/metrics', (_req, res) => {
+      res.status(404).json({ error: 'not_found' });
+    });
+  } else if (typeof metricsGuard === 'function') {
+    app.get('/metrics', metricsGuard, metricsHandler);
+  } else {
+    app.get('/metrics', metricsHandler);
+  }
 
   mountTestBootstrap(app);
 
@@ -192,7 +206,13 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
       const header = socket.handshake.headers?.authorization;
       const tokenFromHeader =
         typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : undefined;
-      const token = tokenFromHeader || socket.handshake.auth?.token;
+      let token = tokenFromHeader || socket.handshake.auth?.token;
+      if (!token) {
+        const cookieToken = getAccessTokenFromCookieHeader(socket.handshake.headers?.cookie);
+        if (cookieToken) {
+          token = cookieToken;
+        }
+      }
       if (!token) {
         incWsAuthFailed();
         return next(new Error('unauthorized'));
@@ -261,6 +281,36 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
   });
 
   return io;
+}
+
+function buildMetricsGuard(logger) {
+  const rawToken = (process.env.METRICS_TOKEN || process.env.PROMETHEUS_TOKEN || '').trim();
+  if (!rawToken) {
+    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+      logger.warn?.('metrics.disabled_missing_token');
+      return false;
+    }
+    logger.warn?.('metrics.unprotected_dev');
+    return null;
+  }
+
+  const expected = Buffer.from(rawToken, 'utf8');
+
+  return (req, res, next) => {
+    const header = req.headers.authorization || '';
+    if (typeof header === 'string' && header.startsWith('Bearer ')) {
+      const provided = header.slice(7).trim();
+      if (provided) {
+        const candidate = Buffer.from(provided, 'utf8');
+        if (candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected)) {
+          return next();
+        }
+      }
+    }
+
+    res.setHeader('WWW-Authenticate', 'Bearer realm="metrics"');
+    return res.status(401).json({ error: 'unauthorized' });
+  };
 }
 
 export async function attachHttp(app, options = {}) {
