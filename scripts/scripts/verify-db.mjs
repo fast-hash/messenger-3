@@ -29,7 +29,7 @@ async function main() {
     await mongoose.connect(mongod.getUri('verify-db'));
     setRedisClient(redis);
 
-    const app = createApp();
+    const app = await createApp();
     const request = supertest(app);
     const bootstrap = await request.post('/__test__/bootstrap');
     if (bootstrap.statusCode !== 200) {

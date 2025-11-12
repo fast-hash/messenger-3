@@ -7,8 +7,8 @@
 
 ## Регистрация и вход
 
-- Заполните форму регистрации: логин, email, пароль и публичный ключ отправляется на сервер вместе с pre-key bundle.【F:server/src/routes/auth.js†L9-L32】【F:server/src/routes/keybundle.js†L5-L34】
-- После регистрации/входа сервер выставляет HTTP-only cookie `accessToken` с JWT; браузер автоматически отправляет его в дальнейших HTTP-запросах и WebSocket-подключениях.【F:server/server/src/server/src/routes/server/src/routes/auth.js†L147-L216】【F:client/client/src/client/src/contexts/client/src/contexts/AuthContext.jsx†L42-L104】
+- Заполните форму регистрации: логин, email, пароль и публичный ключ отправляется на сервер вместе с pre-key bundle.【F:server/src/routes/auth.js†L11-L48】【F:server/src/routes/keybundle.js†L5-L34】
+- После регистрации/входа сервер выставляет HTTP-only cookie `accessToken` с JWT; браузер автоматически отправляет его в дальнейших HTTP-запросах и WebSocket-подключениях.【F:server/src/routes/auth.js†L147-L225】【F:client/src/contexts/AuthContext.jsx†L42-L103】
 
 ## Работа с чатами
 
@@ -23,5 +23,5 @@
 
 ## Офлайн и повторное подключение
 
-- Если соединение с сервером пропадает, Socket.IO автоматически переподключится и заново присоединится к комнатам, используя сохранённый JWT.【F:server/src/app.js†L78-L142】
+- Если соединение с сервером пропадает, Socket.IO автоматически переподключится и заново присоединится к комнатам, используя сохранённый JWT.【F:server/src/app.js†L244-L306】
 - Все сообщения, отправленные офлайн, будут в очереди до восстановления сети в клиентском приложении (Signal воркер кеширует состояние сеансов).【F:client/src/crypto/signal.js†L1-L226】

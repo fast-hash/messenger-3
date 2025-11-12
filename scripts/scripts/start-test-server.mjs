@@ -20,7 +20,7 @@ async function main() {
   await connectMongo(mongoUri);
   setRedisClient(new InMemoryRedis());
 
-  const app = createApp();
+  const app = await createApp();
   const { server } = await attachHttp(app);
 
   await new Promise((resolve) => {

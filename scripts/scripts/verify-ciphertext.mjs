@@ -30,7 +30,7 @@ async function main() {
     setRedisClient(redis);
 
     const observedBodies = [];
-    const app = createApp({
+    const app = await createApp({
       messageObserver: (body) => {
         observedBodies.push(JSON.parse(JSON.stringify(body ?? {})));
       },
