@@ -13,7 +13,6 @@ client/dist/
 server/dist/
 client/playwright-report/
 client/test-results/
-.env
 .env.local
 .env.*.local
 docker-compose.override.yml
